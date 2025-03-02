@@ -1,6 +1,7 @@
 import json
 import kanboard
 import os
+import wekan_types
 from dotenv import load_dotenv
 
 def migrate() -> None:
@@ -16,7 +17,11 @@ def migrate() -> None:
         migrate_wekan_board(kanboard_client, os.path.join(input_directory, file))
 
 def migrate_wekan_board(kanboard_client: kanboard.Client, json_file_path: str) -> None:
-    pass
+    wekan_board: wekan_types.WekanBoard = load_json(json_file_path)
+
+def load_json(json_file_path: str) -> any:
+    with open(json_file_path, 'r') as file:
+        return json.load(file)
 
 def main() -> None:
     load_dotenv()
