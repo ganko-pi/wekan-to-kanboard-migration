@@ -18,3 +18,10 @@ class Project(TypedDict):
     description: str
     identifier: str
     url: Url
+
+class Column(TypedDict):
+    id: str
+    title: str
+    position: str
+    project_id: str
+    task_limit: str
