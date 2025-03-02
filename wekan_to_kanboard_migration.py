@@ -47,6 +47,7 @@ def create_kanboard_columns(kanboard_client: kanboard.Client, project_id: int, w
         column_id = create_kanboard_column(kanboard_client, project_id, columns, wekan_list['title'])
         column_title_position_map[wekan_list['title']] = wekan_list['sort'] + 1
 
+    columns = sort_kanboard_columns(kanboard_client, project_id, column_title_position_map)
     return columns
 
 def create_kanboard_column(kanboard_client: kanboard.Client, project_id: int, existing_columns: list[kanboard_types.Column], column_title: str) -> int:
@@ -56,6 +57,49 @@ def create_kanboard_column(kanboard_client: kanboard.Client, project_id: int, ex
 
     column_id = kanboard_client.add_column(project_id=project_id, title=column_title)
     return column_id
+
+def sort_kanboard_columns(kanboard_client: kanboard.Client, project_id: int, column_title_position_map: dict[str, int]) -> list[kanboard_types.Column]:
+    columns: list[kanboard_types.Column] = kanboard_client.get_columns(project_id=project_id)
+
+    for column in columns:
+        column_title = column['title']
+        if column_title not in column_title_position_map:
+            continue
+
+        current_position = column['position']
+        target_position = column_title_position_map[column_title]
+        if current_position == target_position:
+            continue
+
+        column_id = column['id']
+        kanboard_client.change_column_position(project_id=project_id, column_id=column_id, position=target_position)
+
+        update_kanboard_column_positions(columns, current_position, target_position)
+
+    return columns
+
+def update_kanboard_column_positions(columns: list[kanboard_types.Column], old_position: int, new_position: int) -> None:
+    lower_position = old_position
+    higher_position = new_position
+    position_correction = -1
+
+    if new_position < old_position:
+        lower_position = new_position
+        higher_position = old_position
+        position_correction = 1
+
+    for column in columns:
+        if column['position'] < lower_position:
+            continue
+
+        if column['position'] > higher_position:
+            continue
+
+        if column['position'] == old_position:
+            column['position'] = new_position
+            continue
+
+        column['position'] += position_correction
 
 def main() -> None:
     load_dotenv()
