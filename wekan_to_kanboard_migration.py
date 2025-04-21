@@ -6,10 +6,12 @@ import wekan_types
 from dotenv import load_dotenv
 
 def migrate() -> None:
+    kanboard_api_uri = os.getenv('KANBOARD_API_URI')
+    kanboard_api_user = os.getenv('KANBOARD_API_USER')
     kanboard_api_token = os.getenv('KANBOARD_API_TOKEN')
     input_directory = os.getenv('INPUT_DIRECTORY')
 
-    kanboard_client = kanboard.Client('http://localhost/kanboard/jsonrpc.php', 'jsonrpc', kanboard_api_token, 'X-API-Auth')
+    kanboard_client = kanboard.Client(kanboard_api_uri, kanboard_api_user, kanboard_api_token, 'X-API-Auth')
 
     for file in os.listdir(input_directory):
         if not file.endswith('.json'):
