@@ -25,3 +25,44 @@ class Column(TypedDict):
     position: str
     project_id: str
     task_limit: str
+
+class Task(TypedDict):
+    class Color(TypedDict):
+        name: str
+        background: str
+        border: str
+
+    id: str
+    title: str
+    description: str
+    date_creation: str
+    color_id: str
+    project_id: str
+    column_id: str
+    owner_id: str
+    position: str
+    is_active: str
+    date_completed: str | None
+    score: str
+    date_due: str
+    category_id: str
+    creator_id: str
+    date_modification: str
+    reference: str
+    date_started: str | None
+    time_spent: str
+    time_estimated: str
+    swimlane_id: str
+    date_moved: str
+    recurrence_status: str
+    recurrence_trigger: str
+    recurrence_factor: str
+    recurrence_timeframe: str
+    recurrence_basedate: str
+    recurrence_parent: str | None
+    recurrence_child: str | None
+    priority: str
+    external_provider: str | None
+    external_uri: str | None
+    url: str
+    color: Color
