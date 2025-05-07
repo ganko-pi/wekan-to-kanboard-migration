@@ -99,6 +99,9 @@ def create_kanboard_column(kanboard_client: kanboard.Client, project_id: int, ex
     return column_id
 
 def sort_kanboard_columns(kanboard_client: kanboard.Client, project_id: int, column_title_position_map: dict[str, int]) -> list[kanboard_types.Column]:
+    for index, (column_title, position) in enumerate(sorted(column_title_position_map.items(), key=lambda column_title_position_entry: column_title_position_entry[1])):
+        column_title_position_map[column_title] = index + 1
+
     columns: list[kanboard_types.Column] = kanboard_client.get_columns(project_id=project_id)
 
     for column in columns:
