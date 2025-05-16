@@ -44,16 +44,87 @@ def migrate() -> None:
     logging.info(f'Creating client for "{kanboard_api_uri}" with user "{kanboard_api_user}" to communicate with the Kanboard API.')
     kanboard_client = kanboard.Client(kanboard_api_uri, kanboard_api_user, kanboard_api_token, 'X-API-Auth')
 
+    wekan_board_properties: dict[str, list] = {}
     for file in os.listdir(input_directory):
         if not file.endswith('.json'):
             continue
 
-        migrate_wekan_board(kanboard_client, os.path.join(input_directory, file))
+        json_file_path = os.path.join(input_directory, file)
+        wekan_board: wekan_types.WekanBoard = load_json(json_file_path)
+        extract_properties_dict('', wekan_board, wekan_board_properties)
 
-def migrate_wekan_board(kanboard_client: kanboard.Client, json_file_path: str) -> None:
-    logging.info(f'Starting migration for JSON file "{json_file_path}".')
-    wekan_board: wekan_types.WekanBoard = load_json(json_file_path)
+        logging.info(f'Starting migration for JSON file "{json_file_path}".')
+        migrate_wekan_board(kanboard_client, wekan_board)
 
+    log_wekan_board_properties_with_different_values(wekan_board_properties)
+
+def extract_properties_value(key: str, value: any, typed_dict_properties: dict[str, list]) -> None:
+    wekan_board_properties_list = typed_dict_properties.get(key, [])
+    typed_dict_properties[key] = wekan_board_properties_list
+
+    if value not in wekan_board_properties_list:
+        wekan_board_properties_list.append(value)
+
+def extract_properties_list(key: str, value_list: list, typed_dict_properties: dict[str, list]) -> None:
+    list_str = '[]'
+    wekan_board_properties_list = typed_dict_properties.get(key, [])
+    typed_dict_properties[key] = wekan_board_properties_list
+
+    if list_str not in wekan_board_properties_list:
+        wekan_board_properties_list.append(list_str)
+
+    for value in value_list:
+        if isinstance(value, dict):
+            extract_properties_dict(key, value, typed_dict_properties)
+            continue
+
+        if isinstance(value, list):
+            extract_properties_list(key, value, typed_dict_properties)
+            continue
+
+        extract_properties_value(key, value, typed_dict_properties)
+
+def extract_properties_dict(key: str, typed_dict: dict, typed_dict_properties: dict[str, list]) -> None:
+    dict_str = '{}'
+    wekan_board_properties_list = typed_dict_properties.get(key, [])
+    typed_dict_properties[key] = wekan_board_properties_list
+
+    if dict_str not in wekan_board_properties_list:
+        wekan_board_properties_list.append(dict_str)
+
+    for dict_key, value in typed_dict.items():
+        combined_key = f'{key} - {dict_key}'
+        if key == '':
+            combined_key = dict_key
+
+        wekan_board_properties_list = typed_dict_properties.get(combined_key, [])
+        typed_dict_properties[combined_key] = wekan_board_properties_list
+
+        if isinstance(value, dict):
+            extract_properties_dict(combined_key, value, typed_dict_properties)
+            continue
+
+        if isinstance(value, list):
+            extract_properties_list(combined_key, value, typed_dict_properties)
+            continue
+
+        extract_properties_value(combined_key, value, typed_dict_properties)
+
+def log_wekan_board_properties_with_different_values(wekan_board_properties: dict[str, list]) -> None:
+    logging.debug(f'These are the properties of a wekan board with more than one different value:')
+    log_wekan_board_properties_with_different_values_indented(wekan_board_properties, '  ')
+
+def log_wekan_board_properties_with_different_values_indented(typed_dict_properties: dict[str, list], indent: str) -> None:
+    for key, value in sorted(typed_dict_properties.items()):
+        if len(value) <= 1:
+            continue
+
+        value_output = json.dumps(value)
+        value_output_shortened_length = 80
+        value_output_shortened = (value_output[:(value_output_shortened_length - 3)] + '...') if len(value_output) > value_output_shortened_length else value_output
+        logging.debug(f'{indent}{key}: {len(value)} different values: {value_output_shortened}')
+
+def migrate_wekan_board(kanboard_client: kanboard.Client, wekan_board: wekan_types.WekanBoard) -> None:
     wekan_board_title = wekan_board['title']
 
     kanboard_project = create_kanboard_project(kanboard_client, wekan_board_title)
