@@ -9,6 +9,7 @@ import logging.config
 import logging.handlers
 import os
 import pathlib
+import pytz
 import wekan_types
 from dotenv import load_dotenv
 
@@ -41,6 +42,11 @@ def migrate() -> None:
     kanboard_api_user = os.getenv('KANBOARD_API_USER')
     kanboard_api_token = os.getenv('KANBOARD_API_TOKEN')
     input_directory = os.getenv('INPUT_DIRECTORY')
+    timezone_name = os.getenv('TIMEZONE_KANBOARD_SERVER')
+
+    timezone = pytz.utc
+    if timezone_name is not None and timezone_name != '':
+        timezone = pytz.timezone(timezone_name)
 
     logging.info(f'Creating client for "{kanboard_api_uri}" with user "{kanboard_api_user}" to communicate with the Kanboard API.')
     kanboard_client = kanboard.Client(kanboard_api_uri, kanboard_api_user, kanboard_api_token, 'X-API-Auth')
@@ -55,7 +61,7 @@ def migrate() -> None:
         extract_properties_dict('', wekan_board, wekan_board_properties)
 
         logging.info(f'Starting migration for JSON file "{json_file_path}".')
-        migrate_wekan_board(kanboard_client, wekan_board)
+        migrate_wekan_board(kanboard_client, wekan_board, timezone)
 
     log_wekan_board_properties_with_different_values(wekan_board_properties)
 
@@ -125,12 +131,12 @@ def log_wekan_board_properties_with_different_values_indented(typed_dict_propert
         value_output_shortened = (value_output[:(value_output_shortened_length - 3)] + '...') if len(value_output) > value_output_shortened_length else value_output
         logging.debug(f'{indent}{key}: {len(value)} different values: {value_output_shortened}')
 
-def migrate_wekan_board(kanboard_client: kanboard.Client, wekan_board: wekan_types.WekanBoard) -> None:
+def migrate_wekan_board(kanboard_client: kanboard.Client, wekan_board: wekan_types.WekanBoard, timezone: datetime.tzinfo) -> None:
     wekan_board_title = wekan_board['title']
 
     kanboard_project = create_kanboard_project(kanboard_client, wekan_board_title)
     (columns, wekan_list_id_kanboard_column_id_map) = create_kanboard_columns(kanboard_client, kanboard_project['id'], wekan_board['lists'])
-    populate_columns_with_tasks(kanboard_client, kanboard_project['id'], columns, wekan_list_id_kanboard_column_id_map, wekan_board['cards'])
+    populate_columns_with_tasks(kanboard_client, kanboard_project['id'], columns, wekan_list_id_kanboard_column_id_map, wekan_board['cards'], timezone)
 
 def load_json(json_file_path: str) -> any:
     logging.info(f'Loading contents of JSON file "{json_file_path}".')
@@ -239,19 +245,19 @@ def get_existing_tasks(kanboard_client: kanboard.Client, project_id: int) -> lis
     return existing_tasks
 
 
-def populate_columns_with_tasks(kanboard_client: kanboard.Client, project_id: int, columns: list[kanboard_types.Column], wekan_list_id_kanboard_column_id_map: dict[str, int], cards: list[wekan_types.WekanBoard.Card]) -> None:
+def populate_columns_with_tasks(kanboard_client: kanboard.Client, project_id: int, columns: list[kanboard_types.Column], wekan_list_id_kanboard_column_id_map: dict[str, int], cards: list[wekan_types.WekanBoard.Card], timezone: datetime.tzinfo) -> None:
     existing_tasks = get_existing_tasks(kanboard_client, project_id)
 
     task_id_position_map: dict[int, int] = {}
     for card in cards:
         list_id = card['listId']
         column_id = wekan_list_id_kanboard_column_id_map[list_id]
-        task_id = add_task(kanboard_client, project_id, column_id, existing_tasks, card)
+        task_id = add_task(kanboard_client, project_id, column_id, existing_tasks, card, timezone)
         task_id_position_map[task_id] = card['sort']
 
     sort_active_kanboard_tasks(kanboard_client, project_id, task_id_position_map)
 
-def add_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, existing_tasks: list[kanboard_types.Task], card: wekan_types.WekanBoard.Card) -> int:
+def add_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, existing_tasks: list[kanboard_types.Task], card: wekan_types.WekanBoard.Card, timezone: datetime.tzinfo) -> int:
     existing_task = next((task for task in existing_tasks if task['title'] == card['title']), None)
     if existing_task is not None:
         logging.warn(f'Task "{card['title']}" in project with id {project_id} does already exist with id {existing_task['id']}. It is not ensured that all attributes are correct. Skipping creation.')
@@ -260,7 +266,8 @@ def add_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, 
     card_due_at_str = card.get('dueAt', '')
     task_date_due = None
     if card_due_at_str != '':
-        card_due_at_date = datetime.datetime.fromisoformat(card_due_at_str)
+        card_due_at_date_utc = datetime.datetime.fromisoformat(card_due_at_str)
+        card_due_at_date = card_due_at_date_utc.astimezone(timezone)
         task_date_due = card_due_at_date.strftime('%Y-%m-%d %H:%M')
 
     task_id = kanboard_client.create_task(
