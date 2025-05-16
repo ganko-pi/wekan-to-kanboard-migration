@@ -136,7 +136,7 @@ def migrate_wekan_board(kanboard_client: kanboard.Client, wekan_board: wekan_typ
 
     kanboard_project = create_kanboard_project(kanboard_client, wekan_board_title)
     (columns, wekan_list_id_kanboard_column_id_map) = create_kanboard_columns(kanboard_client, kanboard_project['id'], wekan_board['lists'])
-    populate_columns_with_tasks(kanboard_client, kanboard_project['id'], columns, wekan_list_id_kanboard_column_id_map, wekan_board['cards'], timezone)
+    populate_kanboard_columns_with_tasks(kanboard_client, kanboard_project['id'], columns, wekan_list_id_kanboard_column_id_map, wekan_board['cards'], timezone)
 
 def load_json(json_file_path: str) -> any:
     logging.info(f'Loading contents of JSON file "{json_file_path}".')
@@ -227,37 +227,36 @@ def update_kanboard_column_positions(columns: list[kanboard_types.Column], old_p
 
         column['position'] += position_correction
 
-def get_existing_active_tasks(kanboard_client: kanboard.Client, project_id: int) -> list[kanboard_types.Task]:
+def get_existing_active_kanboard_tasks(kanboard_client: kanboard.Client, project_id: int) -> list[kanboard_types.Task]:
     existing_active_tasks = kanboard_client.get_all_tasks(project_id=project_id, status_id=1)
 
     return existing_active_tasks
 
-def get_existing_inactive_tasks(kanboard_client: kanboard.Client, project_id: int) -> list[kanboard_types.Task]:
+def get_existing_inactive_kanboard_tasks(kanboard_client: kanboard.Client, project_id: int) -> list[kanboard_types.Task]:
     existing_inactive_tasks = kanboard_client.get_all_tasks(project_id=project_id, status_id=0)
 
     return existing_inactive_tasks
 
-def get_existing_tasks(kanboard_client: kanboard.Client, project_id: int) -> list[kanboard_types.Task]:
-    existing_active_tasks = get_existing_active_tasks(kanboard_client, project_id)
-    existing_inactive_tasks = get_existing_inactive_tasks(kanboard_client, project_id)
+def get_existing_kanboard_tasks(kanboard_client: kanboard.Client, project_id: int) -> list[kanboard_types.Task]:
+    existing_active_tasks = get_existing_active_kanboard_tasks(kanboard_client, project_id)
+    existing_inactive_tasks = get_existing_inactive_kanboard_tasks(kanboard_client, project_id)
 
     existing_tasks = [*existing_active_tasks, *existing_inactive_tasks]
     return existing_tasks
 
-
-def populate_columns_with_tasks(kanboard_client: kanboard.Client, project_id: int, columns: list[kanboard_types.Column], wekan_list_id_kanboard_column_id_map: dict[str, int], cards: list[wekan_types.WekanBoard.Card], timezone: datetime.tzinfo) -> None:
-    existing_tasks = get_existing_tasks(kanboard_client, project_id)
+def populate_kanboard_columns_with_tasks(kanboard_client: kanboard.Client, project_id: int, columns: list[kanboard_types.Column], wekan_list_id_kanboard_column_id_map: dict[str, int], cards: list[wekan_types.WekanBoard.Card], timezone: datetime.tzinfo) -> None:
+    existing_tasks = get_existing_kanboard_tasks(kanboard_client, project_id)
 
     task_id_position_map: dict[int, int] = {}
     for card in cards:
         list_id = card['listId']
         column_id = wekan_list_id_kanboard_column_id_map[list_id]
-        task_id = add_task(kanboard_client, project_id, column_id, existing_tasks, card, timezone)
+        task_id = add_kanboard_task(kanboard_client, project_id, column_id, existing_tasks, card, timezone)
         task_id_position_map[task_id] = card['sort']
 
     sort_active_kanboard_tasks(kanboard_client, project_id, task_id_position_map)
 
-def add_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, existing_tasks: list[kanboard_types.Task], card: wekan_types.WekanBoard.Card, timezone: datetime.tzinfo) -> int:
+def add_kanboard_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, existing_tasks: list[kanboard_types.Task], card: wekan_types.WekanBoard.Card, timezone: datetime.tzinfo) -> int:
     existing_task = next((task for task in existing_tasks if task['title'] == card['title']), None)
     if existing_task is not None:
         logging.warn(f'Task "{card['title']}" in project with id {project_id} does already exist with id {existing_task['id']}. It is not ensured that all attributes are correct. Skipping creation.')
@@ -283,9 +282,9 @@ def add_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, 
 
     return task_id
 
-def move_closed_tasks_to_end(kanboard_client: kanboard.Client, project_id: int) -> None:
-    existing_active_tasks = get_existing_active_tasks(kanboard_client, project_id)
-    existing_inactive_tasks = get_existing_inactive_tasks(kanboard_client, project_id)
+def move_closed_kanboard_tasks_to_end_of_column(kanboard_client: kanboard.Client, project_id: int) -> None:
+    existing_active_tasks = get_existing_active_kanboard_tasks(kanboard_client, project_id)
+    existing_inactive_tasks = get_existing_inactive_kanboard_tasks(kanboard_client, project_id)
 
     existing_inactive_tasks.sort(key=lambda task: task['column_id'])
 
@@ -309,9 +308,9 @@ def move_closed_tasks_to_end(kanboard_client: kanboard.Client, project_id: int) 
 
 def sort_active_kanboard_tasks(kanboard_client: kanboard.Client, project_id: int, task_id_position_map: dict[int, int]) -> None:
     # move closed tasks to end to prevent sorting issues
-    move_closed_tasks_to_end(kanboard_client, project_id)
+    move_closed_kanboard_tasks_to_end_of_column(kanboard_client, project_id)
 
-    existing_active_tasks = get_existing_active_tasks(kanboard_client, project_id)
+    existing_active_tasks = get_existing_active_kanboard_tasks(kanboard_client, project_id)
     existing_active_tasks.sort(key=lambda task: task['column_id'])
 
     for column_id, tasks in itertools.groupby(existing_active_tasks, key=lambda task: task['column_id']):
