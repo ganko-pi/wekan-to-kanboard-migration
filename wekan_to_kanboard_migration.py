@@ -260,7 +260,7 @@ def add_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, 
         title=card['title'],
         project_id=project_id,
         column_id=column_id,
-        description=getattr(card, 'description', '')
+        description=card.get('description', '')
     )
 
     if card['archived']:
