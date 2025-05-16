@@ -1,4 +1,5 @@
 import configparser
+import datetime
 import itertools
 import json
 import kanboard
@@ -256,10 +257,17 @@ def add_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, 
         logging.warn(f'Task "{card['title']}" in project with id {project_id} does already exist with id {existing_task['id']}. It is not ensured that all attributes are correct. Skipping creation.')
         return existing_task['id']
 
+    card_due_at_str = card.get('dueAt', '')
+    task_date_due = None
+    if card_due_at_str != '':
+        card_due_at_date = datetime.datetime.fromisoformat(card_due_at_str)
+        task_date_due = card_due_at_date.strftime('%Y-%m-%d %H:%M')
+
     task_id = kanboard_client.create_task(
         title=card['title'],
         project_id=project_id,
         column_id=column_id,
+        date_due=task_date_due,
         description=card.get('description', '')
     )
 

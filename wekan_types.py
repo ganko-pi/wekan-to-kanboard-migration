@@ -63,6 +63,8 @@ class WekanBoard(TypedDict):
         targetId_gantt: list
         linkType_gantt: list
         linkId_gantt: list
+        dueAt: str
+        archivedAt: str
 
     class List(TypedDict):
         class WipLimit(TypedDict):
