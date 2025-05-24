@@ -265,7 +265,7 @@ def populate_kanboard_columns_with_tasks(kanboard_client: kanboard.Client, proje
 def add_kanboard_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, existing_tasks: list[kanboard_types.Task], card: wekan_types.WekanBoard.Card, timezone: datetime.tzinfo) -> int:
     existing_task = next((task for task in existing_tasks if task['title'] == card['title']), None)
     if existing_task is not None:
-        logging.warn(f'Task "{card['title']}" in project with id {project_id} does already exist with id {existing_task['id']}. It is not ensured that all attributes are correct. Skipping creation.')
+        logging.warning(f'Task "{card['title']}" in project with id {project_id} does already exist with id {existing_task['id']}. It is not ensured that all attributes are correct. Skipping creation.')
         return existing_task['id']
 
     card_due_at_str = card.get('dueAt', '')
@@ -384,14 +384,14 @@ def populate_kanboard_tasks_with_subtasks(kanboard_client: kanboard.Client, proj
 
     checklist_titles = map(lambda checklist: checklist['title'], checklists)
     joined_checklist_titles = ', '.join(checklist_titles)
-    logging.warn(f'Populating Kanboard tasks with subtasks from Wekan checklists. Checklist titles cannot be retained. Lost checklist titles: {joined_checklist_titles}')
+    logging.warning(f'Populating Kanboard tasks with subtasks from Wekan checklists. Checklist titles cannot be retained. Lost checklist titles: {joined_checklist_titles}')
 
     checklists_grouped_by_card_ids = itertools.groupby(checklists, key=lambda checklist: checklist['cardId'])
     checklists_of_cards_with_multiple_checklists = filter(lambda group: len(list(group[1])) > 1, checklists_grouped_by_card_ids)
     for card_id, checklists_group in checklists_of_cards_with_multiple_checklists:
         checklists_group_titles = map(lambda checklist: checklist['title'], checklists_group)
         joined_checklists_group_titles = ', '.join(checklists_group_titles)
-        logging.warn(f'Checklists with titles {joined_checklists_group_titles} for Wekan card with id {card_id} are merged.')
+        logging.warning(f'Checklists with titles {joined_checklists_group_titles} for Wekan card with id {card_id} are merged.')
 
     for checklist_item in checklist_items:
         card_id = checklist_item['cardId']
@@ -423,7 +423,7 @@ def add_kanboard_subtask(kanboard_client: kanboard.Client, project_id: int, task
 
 def check_correct_kanboard_subtask_status(subtask_id: int, actual_status: int, expected_status: int) -> None:
     if actual_status != expected_status:
-        logging.warn(f'Subtask with id {subtask_id} was expected to have status {expected_status} but has status {actual_status}.')
+        logging.warning(f'Subtask with id {subtask_id} was expected to have status {expected_status} but has status {actual_status}.')
 
 def main() -> None:
     load_dotenv()
