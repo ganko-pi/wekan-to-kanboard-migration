@@ -136,7 +136,10 @@ def migrate_wekan_board(kanboard_client: kanboard.Client, wekan_board: wekan_typ
 
     kanboard_project = create_kanboard_project(kanboard_client, wekan_board_title)
     (columns, wekan_list_id_kanboard_column_id_map) = create_kanboard_columns(kanboard_client, kanboard_project['id'], wekan_board['lists'])
-    populate_kanboard_columns_with_tasks(kanboard_client, kanboard_project['id'], columns, wekan_list_id_kanboard_column_id_map, wekan_board['cards'], timezone)
+    (tasks, wekan_card_id_kanboard_task_id_map) = populate_kanboard_columns_with_tasks(kanboard_client, kanboard_project['id'], columns,
+        wekan_list_id_kanboard_column_id_map, wekan_board['cards'], timezone)
+    populate_kanboard_tasks_with_subtasks(kanboard_client, kanboard_project['id'], tasks, wekan_card_id_kanboard_task_id_map, wekan_board['checklists'],
+        wekan_board['checklistItems'])
 
 def load_json(json_file_path: str) -> any:
     logging.info(f'Loading contents of JSON file "{json_file_path}".')
@@ -155,7 +158,7 @@ def create_kanboard_project(kanboard_client: kanboard.Client, project_name: str)
     project = kanboard_client.get_project_by_id(project_id=project_id)
     return project
 
-def create_kanboard_columns(kanboard_client: kanboard.Client, project_id: int, wekan_lists: list[wekan_types.WekanBoard.List]) -> (list[kanboard_types.Column], dict[str, int]) :
+def create_kanboard_columns(kanboard_client: kanboard.Client, project_id: int, wekan_lists: list[wekan_types.WekanBoard.List]) -> (list[kanboard_types.Column], dict[str, int]):
     columns = kanboard_client.get_columns(project_id=project_id)
 
     column_title_position_map: dict[str, int] = {}
@@ -244,17 +247,20 @@ def get_existing_kanboard_tasks(kanboard_client: kanboard.Client, project_id: in
     existing_tasks = [*existing_active_tasks, *existing_inactive_tasks]
     return existing_tasks
 
-def populate_kanboard_columns_with_tasks(kanboard_client: kanboard.Client, project_id: int, columns: list[kanboard_types.Column], wekan_list_id_kanboard_column_id_map: dict[str, int], cards: list[wekan_types.WekanBoard.Card], timezone: datetime.tzinfo) -> None:
+def populate_kanboard_columns_with_tasks(kanboard_client: kanboard.Client, project_id: int, columns: list[kanboard_types.Column], wekan_list_id_kanboard_column_id_map: dict[str, int], cards: list[wekan_types.WekanBoard.Card], timezone: datetime.tzinfo) -> (list[kanboard_types.Task], dict[str, int]) :
     existing_tasks = get_existing_kanboard_tasks(kanboard_client, project_id)
 
     task_id_position_map: dict[int, int] = {}
+    wekan_card_id_kanboard_task_id_map: dict[str, int] = {}
     for card in cards:
         list_id = card['listId']
         column_id = wekan_list_id_kanboard_column_id_map[list_id]
         task_id = add_kanboard_task(kanboard_client, project_id, column_id, existing_tasks, card, timezone)
         task_id_position_map[task_id] = card['sort']
+        wekan_card_id_kanboard_task_id_map[card['_id']] = task_id
 
-    sort_active_kanboard_tasks(kanboard_client, project_id, task_id_position_map)
+    tasks = sort_active_kanboard_tasks(kanboard_client, project_id, task_id_position_map)
+    return (tasks, wekan_card_id_kanboard_task_id_map)
 
 def add_kanboard_task(kanboard_client: kanboard.Client, project_id: int, column_id: int, existing_tasks: list[kanboard_types.Task], card: wekan_types.WekanBoard.Card, timezone: datetime.tzinfo) -> int:
     existing_task = next((task for task in existing_tasks if task['title'] == card['title']), None)
@@ -306,19 +312,23 @@ def move_closed_kanboard_tasks_to_end_of_column(kanboard_client: kanboard.Client
 
             inactive_tasks_position += 1
 
-def sort_active_kanboard_tasks(kanboard_client: kanboard.Client, project_id: int, task_id_position_map: dict[int, int]) -> None:
+def sort_active_kanboard_tasks(kanboard_client: kanboard.Client, project_id: int, task_id_position_map: dict[int, int]) -> list[kanboard_types.Task]:
     # move closed tasks to end to prevent sorting issues
     move_closed_kanboard_tasks_to_end_of_column(kanboard_client, project_id)
 
     existing_active_tasks = get_existing_active_kanboard_tasks(kanboard_client, project_id)
     existing_active_tasks.sort(key=lambda task: task['column_id'])
 
+    sorted_tasks: list[kanboard_types.Task] = []
     for column_id, tasks in itertools.groupby(existing_active_tasks, key=lambda task: task['column_id']):
         tasks_list = list(tasks)
         task_ids = list(map(lambda task: task['id'], tasks_list))
         task_id_position_map_for_column = {task_id: position for task_id, position in task_id_position_map.items()
             if task_id in task_ids}
-        sorted_tasks = sort_kanboard_tasks_in_column(kanboard_client, project_id, column_id, tasks_list, task_id_position_map_for_column)
+        sorted_tasks_in_column = sort_kanboard_tasks_in_column(kanboard_client, project_id, column_id, tasks_list, task_id_position_map_for_column)
+        sorted_tasks.extend(sorted_tasks_in_column)
+
+    return sorted_tasks
 
 def sort_kanboard_tasks_in_column(kanboard_client: kanboard.Client, project_id: int, column_id: int, tasks: list[kanboard_types.Task], task_id_position_map: dict[int, int]) -> list[kanboard_types.Task]:
     for index, (task_id, position) in enumerate(sorted(task_id_position_map.items(), key=lambda task_id_position_entry: task_id_position_entry[1])):
@@ -367,6 +377,53 @@ def update_kanboard_task_positions(tasks: list[kanboard_types.Task], old_positio
             continue
 
         task['position'] += position_correction
+
+def populate_kanboard_tasks_with_subtasks(kanboard_client: kanboard.Client, project_id: int, tasks: list[kanboard_types.Task], wekan_card_id_kanboard_task_id_map: dict[str, int], checklists: list[wekan_types.WekanBoard.Checklist], checklist_items: list[wekan_types.WekanBoard.ChecklistItem]) -> None:
+    if len(checklists) == 0:
+        return
+
+    checklist_titles = map(lambda checklist: checklist['title'], checklists)
+    joined_checklist_titles = ', '.join(checklist_titles)
+    logging.warn(f'Populating Kanboard tasks with subtasks from Wekan checklists. Checklist titles cannot be retained. Lost checklist titles: {joined_checklist_titles}')
+
+    checklists_grouped_by_card_ids = itertools.groupby(checklists, key=lambda checklist: checklist['cardId'])
+    checklists_of_cards_with_multiple_checklists = filter(lambda group: len(list(group[1])) > 1, checklists_grouped_by_card_ids)
+    for card_id, checklists_group in checklists_of_cards_with_multiple_checklists:
+        checklists_group_titles = map(lambda checklist: checklist['title'], checklists_group)
+        joined_checklists_group_titles = ', '.join(checklists_group_titles)
+        logging.warn(f'Checklists with titles {joined_checklists_group_titles} for Wekan card with id {card_id} are merged.')
+
+    for checklist_item in checklist_items:
+        card_id = checklist_item['cardId']
+        task_id = wekan_card_id_kanboard_task_id_map[card_id]
+        subtask_id = add_kanboard_subtask(kanboard_client, project_id, task_id, checklist_item)
+
+def add_kanboard_subtask(kanboard_client: kanboard.Client, project_id: int, task_id: int, checklist_item: wekan_types.WekanBoard.ChecklistItem) -> int:
+    existing_subtasks_of_task: list[kanboard_types.Subtask] = kanboard_client.get_all_subtasks(task_id=task_id)
+    existing_subtask_with_title = next((subtask for subtask in existing_subtasks_of_task if subtask['title'] == checklist_item['title']), None)
+    if existing_subtask_with_title is not None:
+        subtask_id = existing_subtask_with_title['id']
+        logging.info(f'Subtask "{checklist_item['title']}" in project with id {project_id} does already exist with id {subtask_id}. Skipping creation.')
+        actual_status = existing_subtask_with_title['status']
+        expected_status = 1 if checklist_item['isFinished'] else 0
+        check_correct_kanboard_subtask_status(subtask_id, actual_status, expected_status)
+        return existing_subtask_with_title['id']
+
+    subtask_status = kanboard_types.Subtask.Status.NOT_STARTED
+    if checklist_item['isFinished']:
+        subtask_status = kanboard_types.Subtask.Status.FINISHED
+
+    subtask_id = kanboard_client.create_subtask(
+        task_id=task_id,
+        title=checklist_item['title'],
+        status=subtask_status.value
+    )
+
+    return subtask_id
+
+def check_correct_kanboard_subtask_status(subtask_id: int, actual_status: int, expected_status: int) -> None:
+    if actual_status != expected_status:
+        logging.warn(f'Subtask with id {subtask_id} was expected to have status {expected_status} but has status {actual_status}.')
 
 def main() -> None:
     load_dotenv()

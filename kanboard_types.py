@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import TypedDict
 
 class Project(TypedDict):
@@ -66,3 +67,17 @@ class Task(TypedDict):
     external_uri: str | None
     url: str
     color: Color
+
+class Subtask(TypedDict):
+    class Status(Enum):
+        NOT_STARTED = 1
+        IN_PROGRESS = 2
+        FINISHED = 3
+
+    id: str
+    title: str
+    status: str
+    time_estimated: str
+    time_spent: str
+    task_id: str
+    user_id: str
