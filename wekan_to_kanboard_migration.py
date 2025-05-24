@@ -155,8 +155,17 @@ def create_kanboard_project(kanboard_client: kanboard.Client, project_name: str)
     logging.info(f'Creating project "{project_name}".')
     project_id = kanboard_client.create_project(name=project_name)
     logging.info(f'Created project "{project_name}" with id {project_id}.')
+
+    logging.info(f'Delete default columns in project "{project_name}".')
+    delete_all_kanboard_columns(kanboard_client, project_id)
+
     project = kanboard_client.get_project_by_id(project_id=project_id)
     return project
+
+def delete_all_kanboard_columns(kanboard_client: kanboard.Client, project_id: int):
+    columns: list[kanboard_types.Column] = kanboard_client.get_columns(project_id=project_id)
+    for column in columns:
+        kanboard_client.remove_column(column_id=column['id'])
 
 def create_kanboard_columns(kanboard_client: kanboard.Client, project_id: int, wekan_lists: list[wekan_types.WekanBoard.List]) -> (list[kanboard_types.Column], dict[str, int]):
     columns = kanboard_client.get_columns(project_id=project_id)
